@@ -4,9 +4,12 @@ const cors = require("cors");
 
 const app = express();
 app.use(express.json({ limit: "5mb" }));
-app.use(cors()); // Enable CORS for frontend use
+app.use(cors());
 
 const PORT = process.env.PORT || 8080;
+
+// Base64-encoded "apiKey:apiSecret"
+const IMAGGA_AUTH_HEADER = "e95afaca24b913b424c45f353d3a7dee"; // Replace this with the real one
 
 app.post("/api/imagga", async (req, res) => {
   const { imageBase64 } = req.body;
@@ -16,29 +19,39 @@ app.post("/api/imagga", async (req, res) => {
   }
 
   try {
-    const response = await fetch("https://api.imagga.com/v2/models/general-image-recognition/outputs", {
+    // STEP 1: Upload the image
+    const uploadRes = await fetch("https://api.imagga.com/v2/uploads", {
       method: "POST",
       headers: {
-        Authorization: process.env.IMAGGA_API_KEY, // replace with actual Imagga key
-        "Content-Type": "application/json",
+        Authorization: IMAGGA_AUTH_HEADER,
+        "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: JSON.stringify({
-        inputs: [
-          {
-            data: {
-              image: {
-                base64: imageBase64,
-              },
-            },
-          },
-        ],
+      body: new URLSearchParams({
+        image_base64: imageBase64,
       }),
     });
 
-    const data = await response.json();
-    return res.status(response.status).json(data);
+    const uploadData = await uploadRes.json();
+
+    if (!uploadData.result || !uploadData.result.upload_id) {
+      return res.status(500).json({ error: "Upload failed", details: uploadData });
+    }
+
+    const uploadId = uploadData.result.upload_id;
+
+    // STEP 2: Get tags using the upload ID
+    const tagsRes = await fetch(`https://api.imagga.com/v2/tags?image_upload_id=${uploadId}`, {
+      method: "GET",
+      headers: {
+        Authorization: IMAGGA_AUTH_HEADER,
+      },
+    });
+
+    const tagsData = await tagsRes.json();
+
+    res.status(200).json(tagsData);
   } catch (error) {
-    return res.status(500).json({ error: "Failed to fetch from Imagga", details: error.message });
+    res.status(500).json({ error: "Failed to fetch from Imagga", details: error.message });
   }
 });
 
